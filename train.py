@@ -28,8 +28,9 @@ def get_args():
 
 
 def train(model, optimizer, epoch, npcfg):
-    trainset, train_sizes = make_dataset(npcfg.train_gpr)
-    testset, test_sizes = make_dataset(npcfg.test_gpr)
+    # trainset = npcfg.trainset
+    trainset, _ = make_dataset(npcfg.train_gpr)
+    testset, _ = make_dataset(npcfg.test_gpr)
 
     model.train()
     # train_loss = 0
@@ -37,25 +38,34 @@ def train(model, optimizer, epoch, npcfg):
     optimizer.zero_grad()
     yhatT, sgm, loss = model(xC, yC, xT, yT)
     loss.backward()
-    optimizer.step()
+    def losser():
+        return loss
+    optimizer.step(losser)
+    loss_meter.update(loss.item())
+    predicted_list.append(yhatT)
 
-    if epoch % 10 == 0:
+    if epoch % 1000 == 0:
+        model.check_kl_collapse(xC, yC, xT, yT)
+
+    if epoch % 100 == 0:
         try:
+
             # if visdom server running, plot loss values
-            plotter.plot("epoch", "loss", "train", "Epoch - Loss", epoch, loss.item())
+            plotter.plot("epoch", "loss", "train", "Epoch - Loss", [epoch], [loss_meter.avg], reset=False)
         except Exception as e:
             print(e)
-            pass
+        finally:
+            loss_meter.reset()
 
     if epoch % npcfg.log_interval == 0:
         print(f"Train Epoch {epoch}/{npcfg.max_epoch}: {loss.item():.6f}")
-        file_name = f"img/train-{epoch:05d}.png"
+        # file_name = f"img/train-{epoch:05d}.png"
+        # plot_functions(file_name, *trainset, yhatT, sgm)
+
+        file_name = f"img/test-{epoch:05d}.png"
         import pathlib
         p = pathlib.Path(file_name)
         p.parent.mkdir(parents=True, exist_ok=True)
-        plot_functions(file_name, *trainset, yhatT, sgm)
-
-        file_name = f"img/test-{epoch:05d}.png"
         with torch.no_grad():
             yhatT, sgm = model.predict(*testset[:3])
         plot_functions(file_name, *testset, yhatT, sgm)
@@ -88,15 +98,14 @@ if __name__ == "__main__":
     train_gpr = GPCurvesReader(batch_size=batch_size, max_num_context=50, testing=False)
     test_gpr = GPCurvesReader(batch_size=1, max_num_context=50, testing=True)
     trainset, train_sizes = make_dataset(train_gpr)
-    testset, test_sizes = make_dataset(test_gpr)
     xC_size, yC_size, xT_size, yT_size = train_sizes
 
     import collections
     NPTrainConfig = collections.namedtuple(
-        "NPTrainConfig", ("train_gpr", "test_gpr", "log_interval", "max_epoch")
+        "NPTrainConfig", ("trainset", "train_gpr", "test_gpr", "log_interval", "max_epoch")
     )
     npcfg = NPTrainConfig(
-        train_gpr=train_gpr, test_gpr=test_gpr,
+        trainset=trainset, train_gpr=train_gpr, test_gpr=test_gpr,
         log_interval=args.log_interval, max_epoch=args.epochs
     )
 
@@ -115,6 +124,12 @@ if __name__ == "__main__":
     global plotter
     # plotter = utils.VisdomLinePlotter(env_name='np')
     plotter = utils.VisdomLinePlotter(env_name='main')
+
+    global loss_meter
+    loss_meter = utils.AverageMeter()
+
+    global predicted_list
+    predicted_list = []
 
     for epoch in range(1, args.epochs + 1):
         train(model, optimizer, epoch, npcfg)

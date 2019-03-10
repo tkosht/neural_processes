@@ -153,8 +153,10 @@ def plot_functions(file_name, context_x, context_y, target_x, target_y, pred_y, 
     yc = context_y[0, :, 0].cpu().numpy()
     xt = target_x[0, :, 0].cpu().numpy()
     yt = target_y[0, :, 0].cpu().numpy()
-    yht = pred_y[0, :, 0].cpu().detach().numpy()
-    sgm = std[0, :, 0].cpu().detach().numpy()
+    yht = pred_y[0, :, 0].cpu().numpy()
+    sgm = std[0, :, 0].cpu().numpy()
+    # yht = pred_y[0, :, 0].cpu().detach().numpy()
+    # sgm = std[0, :, 0].cpu().detach().numpy()
 
     plt.plot(xt, yht, 'b', linewidth=2)
     plt.plot(xt, yt, 'k:', linewidth=2)

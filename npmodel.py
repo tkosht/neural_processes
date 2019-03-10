@@ -15,6 +15,7 @@ class NPMlp(nn.Module):
         prev_sz = layers[0]
         for hsz in self.layers[1:]:
             fc = nn.Linear(prev_sz, hsz)
+            torch.nn.init.xavier_normal_(fc.weight)
             self.fcs.append(fc)
             prev_sz = hsz
 
@@ -68,7 +69,7 @@ class NPEmbedder(nn.Module):
 
 
 class NPEncoder(nn.Module):
-    def __init__(self, hidden_size: int, z_size: int):
+    def __init__(self, hidden_size: int, z_size: int, encoder_layers=[2, 4, 8], activate=F.relu):
         super().__init__()
 
         assert hidden_size > 0
@@ -77,13 +78,19 @@ class NPEncoder(nn.Module):
         self.latent_size = z_size
 
         self.a = torch.mean
-        self.mu = nn.Linear(self.hidden_size, self.latent_size)
-        self.logsgm = nn.Linear(self.hidden_size, self.latent_size)
+        layers = [hidden_size] + encoder_layers
+        self.enc = NPMlp(layers, activate)
+        self.mu = nn.Linear(layers[-1], self.latent_size)
+        self.logsgm = nn.Linear(layers[-1], self.latent_size)
         self.softplus = torch.nn.Softplus()
         self.device = torch.device("cpu")
 
+        torch.nn.init.xavier_normal_(self.mu.weight)
+        torch.nn.init.xavier_normal_(self.logsgm.weight)
+
     def u(self, r):
-        return self.mu(r), self.logsgm(r)
+        h = self.enc(r)
+        return self.mu(h), self.logsgm(h)
 
     def encode(self, r_vector):     # (B, N, r_dim)
         r = self.a(r_vector, dim=1)
@@ -95,8 +102,9 @@ class NPEncoder(nn.Module):
         return self.encode(r_vector)
 
     def to(self, device):
-        self.mu= self.mu.to(device)
-        self.logsgm= self.logsgm.to(device)
+        self.enc = self.enc.to(device)
+        self.mu = self.mu.to(device)
+        self.logsgm = self.logsgm.to(device)
         self.device = device
         return super().to(device)
 
@@ -137,21 +145,25 @@ class NPDecoder(nn.Module):
 
 class NPModel(nn.Module):
     def __init__(self, xC_size, yC_size, xT_size, yT_size, z_size,
-                 embed_layers=[32, 64, 28], expand_layers=[32, 64]):
+                 embed_layers=[32, 64, 28], encoder_layers=[28, 32], expand_layers=[32, 64]):
         super().__init__()
 
         self.embedder_C = NPEmbedder(xC_size, yC_size, embed_layers)
         self.embedder_T = NPEmbedder(xT_size, yT_size, embed_layers)
-        self.encoder = NPEncoder(embed_layers[-1], z_size)
+        self.encoder = NPEncoder(embed_layers[-1], z_size, encoder_layers)
         self.decoder = NPDecoder(xT_size, z_size, expand_layers)
         self.device = torch.device("cpu")
+
+    def reparameterize(self, mu, sgm):
+        eps = torch.randn_like(sgm)
+        return mu + eps*sgm
 
     def encode_context(self, xC, yC):
         rC = self.embedder_C(xC, yC)
         muC, sgmC = self.encoder(rC.to(self.device))
         qC = self.distribution(muC, sgmC)
-        zC = qC.sample()
-        return zC, qC
+        zC = self.reparameterize(muC, sgmC)
+        return zC, qC, muC, sgmC
 
     def encode_full(self, xC, yC, xT, yT):
         rC = self.embedder_C(xC, yC)
@@ -159,8 +171,8 @@ class NPModel(nn.Module):
         rCT = torch.cat([rC, rT], dim=1)
         muCT, sgmCT = self.encoder(rCT.to(self.device))
         qCT = self.distribution(muCT, sgmCT)
-        zCT = qCT.sample()
-        return zCT, qCT
+        zCT = self.reparameterize(muCT, sgmCT)
+        return zCT, qCT, muCT, sgmCT
 
     def distribution(self, mu, sgm):
         return torch.distributions.Normal(mu, sgm)
@@ -181,18 +193,41 @@ class NPModel(nn.Module):
         return kl_div
 
     def predict(self, xC, yC, xT):
-        zC, distC = self.encode_context(xC, yC)
+        zC, distC, _, _ = self.encode_context(xC, yC)
         yhatT, sgm = self.decode_context(xT, zC)
         return yhatT, sgm
 
     def forward(self, xC, yC, xT, yT):
-        zC, qC = self.encode_context(xC, yC)
-        zCT, qCT = self.encode_full(xC, yC, xT, yT)
+        zC, qC, muC, sgmC = self.encode_context(xC, yC)
+        zCT, qCT, muCT, sgmCT = self.encode_full(xC, yC, xT, yT)
         yhatT, sgm = self.decode_context(xT, zC)
+        sgm = torch.ones_like(yhatT) * 0.005
         log_p = self.log_likelihood(yhatT, std=sgm, D=yT)
         kl_div = self.kl_loss(q=qCT, p=qC)
         loss = - log_p + kl_div
         return yhatT, sgm, loss
+
+    _func_plotter = None
+    def check_kl_collapse(self, xC, yC, xT, yT):
+        import utils
+        p = self._func_plotter
+        if p is None:
+            p = utils.VisdomLinePlotter(env_name='main')
+            self._func_plotter = p
+        with torch.no_grad():
+            for _ in range(5):
+                zC, qC, muC, sgmC = self.encode_context(xC, yC)
+                yhatT, sgm = self.decode_context(xT, zC)
+                x, indices = xT[0, :, 0].sort(dim=-1)
+                # for it, idx in enumerate(indices):
+                #     print(xT[0, idx, 0].cpu().numpy(), yhatT[0, idx, 0].cpu().numpy())
+                #     reset = not it
+                #     p.plot("xT", "yhatT", "check_kl_collapse", "x - yhat", xT[0, idx, 0].cpu().numpy(), yhatT[0, idx, 0].cpu().numpy(), reset)
+                p.plot("xT", "y", "yhatT", "x - yhat", xT[0, indices, 0].cpu().numpy(), yhatT[0, indices, 0].cpu().numpy(), reset=True)
+                p.scatter(xT[0, indices, 0].cpu().numpy(), yT[0, indices, 0].cpu().numpy(), "y", "yT")
+                import time
+                time.sleep(1)
+        return yhatT, sgm
 
     def to(self, device):
         self.embedder_C = self.embedder_C.to(device)
