@@ -28,8 +28,8 @@ def get_args():
 
 
 def train(model, optimizer, epoch, npcfg):
-    # trainset = npcfg.trainset
-    trainset, _ = make_dataset(npcfg.train_gpr)
+    trainset = npcfg.trainset
+    # trainset, _ = make_dataset(npcfg.train_gpr)
     testset, _ = make_dataset(npcfg.test_gpr)
 
     model.train()
@@ -109,14 +109,16 @@ if __name__ == "__main__":
         log_interval=args.log_interval, max_epoch=args.epochs
     )
 
+    hidden_size = 128
     model_params = {
         "xC_size": xC_size,
         "yC_size": yC_size,
         "xT_size": xT_size,
         "yT_size": yT_size,
-        "z_size": 128,
-        "embed_layers": [128]*4,
-        "expand_layers": [128]*2 + [yT_size],
+        "z_size": hidden_size,
+        "embed_layers": [hidden_size]*4,
+        "encoder_layers": [hidden_size]*4,
+        "expand_layers": [hidden_size]*2 + [yT_size],
     }
     model = NPModel(**model_params).to(device)
     optimizer = optim.Adam(model.parameters(), lr=1e-3)

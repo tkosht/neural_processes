@@ -219,11 +219,7 @@ class NPModel(nn.Module):
                 zC, qC, muC, sgmC = self.encode_context(xC, yC)
                 yhatT, sgm = self.decode_context(xT, zC)
                 x, indices = xT[0, :, 0].sort(dim=-1)
-                # for it, idx in enumerate(indices):
-                #     print(xT[0, idx, 0].cpu().numpy(), yhatT[0, idx, 0].cpu().numpy())
-                #     reset = not it
-                #     p.plot("xT", "yhatT", "check_kl_collapse", "x - yhat", xT[0, idx, 0].cpu().numpy(), yhatT[0, idx, 0].cpu().numpy(), reset)
-                p.plot("xT", "y", "yhatT", "x - yhat", xT[0, indices, 0].cpu().numpy(), yhatT[0, indices, 0].cpu().numpy(), reset=True)
+                p.plot("xT", "y", "yhatT", "trainset: x - yhat", xT[0, indices, 0].cpu().numpy(), yhatT[0, indices, 0].cpu().numpy(), reset=True)
                 p.scatter(xT[0, indices, 0].cpu().numpy(), yT[0, indices, 0].cpu().numpy(), "y", "yT")
                 import time
                 time.sleep(1)
