@@ -2,75 +2,120 @@ import argparse
 import torch
 import torch.utils.data
 from torch import nn, optim
-from torchvision.utils import save_image
 
-import toydataset as dataset
+import utils
 from npmodel import NPModel
+from toydataset import GPCurvesReader, plot_functions
 
 
 def get_args():
     parser = argparse.ArgumentParser(description='VAE MNIST Example')
     parser.add_argument('--batch-size', type=int, default=8, metavar='N',
                         help='input batch size for training (default: 128)')
-    parser.add_argument('--epochs', type=int, default=100, metavar='N',
+    parser.add_argument('--epochs', type=int, default=100000, metavar='N',
                         help='number of epochs to train (default: 10)')
     parser.add_argument('--no-cuda', action='store_true', default=False,
                         help='enables CUDA training')
+    parser.add_argument('--gpu', type=int, default=1, metavar='N',
+                        help='gpu number (default: 1), if no-cuda, ignore this option.')
     parser.add_argument('--seed', type=int, default=1, metavar='S',
                         help='random seed (default: 1)')
-    parser.add_argument('--log-interval', type=int, default=10, metavar='N',
+    parser.add_argument('--log-interval', type=int, default=1000, metavar='N',
                         help='how many batches to wait before logging training status')
     args = parser.parse_args()
     args.cuda = not args.no_cuda and torch.cuda.is_available()
     return args
 
 
-def train(model, epoch, log_interval):
+def train(model, optimizer, epoch, npcfg):
+    trainset, train_sizes = make_dataset(npcfg.train_gpr)
+    testset, test_sizes = make_dataset(npcfg.test_gpr)
+
     model.train()
     # train_loss = 0
-    for bdx in enumerate(range()):
-        data = data.to(device)
-        optimizer.zero_grad()
-        y_hatT, loss = model(data)
-        loss.backward()
-        # train_loss += loss.item()
-        optimizer.step()
-        if bdx % log_interval == 0:
-            print('Train Epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f}'.format(
-                epoch, bdx * len(data), len(train_loader.dataset),
-                       100. * bdx / len(train_loader),
-                       loss.item() / len(data)))
+    xC, yC, xT, yT = trainset
+    optimizer.zero_grad()
+    yhatT, sgm, loss = model(xC, yC, xT, yT)
+    loss.backward()
+    optimizer.step()
 
-    print('====> Epoch: {} Average loss: {:.4f}'.format(
-        epoch, train_loss / len(train_loader.dataset)))
+    if epoch % 10 == 0:
+        try:
+            # if visdom server running, plot loss values
+            plotter.plot("epoch", "loss", "train", "Epoch - Loss", epoch, loss.item())
+        except Exception as e:
+            print(e)
+            pass
+
+    if epoch % npcfg.log_interval == 0:
+        print(f"Train Epoch {epoch}/{npcfg.max_epoch}: {loss.item():.6f}")
+        file_name = f"img/train-{epoch:05d}.png"
+        import pathlib
+        p = pathlib.Path(file_name)
+        p.parent.mkdir(parents=True, exist_ok=True)
+        plot_functions(file_name, *trainset, yhatT, sgm)
+
+        file_name = f"img/test-{epoch:05d}.png"
+        with torch.no_grad():
+            yhatT, sgm = model.predict(*testset[:3])
+        plot_functions(file_name, *testset, yhatT, sgm)
+
+
+def make_dataset(gpr):
+    data = gpr.generate_curves()
+    ((context_x, context_y), target_x) = data.query
+    target_y = data.target_y
+    dataset = [context_x, context_y, target_x, target_y]
+    for idx, d in enumerate(dataset):
+        dataset[idx] = d.to(device)
+    xC_size = context_x.shape[-1]
+    yC_size = context_y.shape[-1]
+    xT_size = target_x.shape[-1]
+    yT_size = target_y.shape[-1]
+    # xC_size = numpy.array(context_x.shape[-2:]).prod()
+    # yC_size = numpy.array(context_y.shape[-2:]).prod()
+    # xT_size = numpy.array(target_x.shape[-2:]).prod()
+    # yT_size = numpy.array(target_y.shape[-2:]).prod()
+    sizes = [xC_size, yC_size, xT_size, yT_size]
+    return dataset, sizes
 
 
 if __name__ == "__main__":
-    from toydataset import GPCurvesReader
     args = get_args()
-    device = torch.device("cuda" if args.cuda else "cpu")
+    device = torch.device(f"cuda:{args.gpu}" if args.cuda else "cpu")
 
-    params = {
-        "xC_size": 111,
-        "yC_size": 111,
-        "xT_size": 333,
-        "yT_size": 333,
-        "z_size": 66,
-        "embed_layers": [32, 64, 28],
-        "expand_layers": [32, 64],
+    batch_size = 16
+    train_gpr = GPCurvesReader(batch_size=batch_size, max_num_context=50, testing=False)
+    test_gpr = GPCurvesReader(batch_size=1, max_num_context=50, testing=True)
+    trainset, train_sizes = make_dataset(train_gpr)
+    testset, test_sizes = make_dataset(test_gpr)
+    xC_size, yC_size, xT_size, yT_size = train_sizes
+
+    import collections
+    NPTrainConfig = collections.namedtuple(
+        "NPTrainConfig", ("train_gpr", "test_gpr", "log_interval", "max_epoch")
+    )
+    npcfg = NPTrainConfig(
+        train_gpr=train_gpr, test_gpr=test_gpr,
+        log_interval=args.log_interval, max_epoch=args.epochs
+    )
+
+    model_params = {
+        "xC_size": xC_size,
+        "yC_size": yC_size,
+        "xT_size": xT_size,
+        "yT_size": yT_size,
+        "z_size": 128,
+        "embed_layers": [128]*4,
+        "expand_layers": [128]*2 + [yT_size],
     }
-    model = NPModel(**params).to(device)
+    model = NPModel(**model_params).to(device)
     optimizer = optim.Adam(model.parameters(), lr=1e-3)
 
-    train_gpr = GPCurvesReader(batch_size=8, max_num_context=50, testing=False)
-    test_gpr = GPCurvesReader(batch_size=8, max_num_context=50, testing=True)
-
+    global plotter
+    # plotter = utils.VisdomLinePlotter(env_name='np')
+    plotter = utils.VisdomLinePlotter(env_name='main')
 
     for epoch in range(1, args.epochs + 1):
-        train(model, epoch, args.log_interval)
-        # test(epoch)
-        # with torch.no_grad():
-        #     sample = torch.randn(64, 20).to(device)
-        #     sample = model.decode(sample).cpu()
-        #     save_image(sample.view(64, 1, 28, 28),
-        #                'results/sample_' + str(epoch) + '.png')
+        train(model, optimizer, epoch, npcfg)
+
