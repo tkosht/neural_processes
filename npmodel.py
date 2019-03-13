@@ -165,7 +165,7 @@ class NPModel(nn.Module):
         muC, sgmC = self.encoder(rC.to(self.device))
         qC = self.distribution(muC, sgmC)
         zC = self.reparameterize(muC, sgmC)
-        return zC, qC, muC, sgmC
+        return zC, qC
 
     def encode_full(self, xC, yC, xT, yT):
         rC = self.embedder_C(xC, yC)
@@ -174,7 +174,7 @@ class NPModel(nn.Module):
         muCT, sgmCT = self.encoder(rCT.to(self.device))
         qCT = self.distribution(muCT, sgmCT)
         zCT = self.reparameterize(muCT, sgmCT)
-        return zCT, qCT, muCT, sgmCT
+        return zCT, qCT
 
     def distribution(self, mu, sgm):
         return torch.distributions.Normal(mu, sgm)
@@ -195,13 +195,13 @@ class NPModel(nn.Module):
         return kl_div
 
     def predict(self, xC, yC, xT):
-        zC, distC, _, _ = self.encode_context(xC, yC)
+        zC, qC = self.encode_context(xC, yC)
         yhatT, sgm = self.decode_context(xT, zC)
         return yhatT, sgm
 
     def forward(self, xC, yC, xT, yT):
-        zC, qC, muC, sgmC = self.encode_context(xC, yC)
-        zCT, qCT, muCT, sgmCT = self.encode_full(xC, yC, xT, yT)
+        zC, qC = self.encode_context(xC, yC)
+        zCT, qCT = self.encode_full(xC, yC, xT, yT)
         yhatT, sgm = self.decode_context(xT, zC)
         log_p = self.log_likelihood(yhatT, std=sgm, D=yT)
         kl_div = self.kl_loss(q=qCT, p=qC)
@@ -209,6 +209,7 @@ class NPModel(nn.Module):
         return yhatT, sgm, loss
 
     _func_plotter = None
+
     def check_kl_collapse(self, xC, yC, xT, yT):
         import utils
         p = self._func_plotter
@@ -217,7 +218,7 @@ class NPModel(nn.Module):
             self._func_plotter = p
         with torch.no_grad():
             for _ in range(10):
-                zC, qC, muC, sgmC = self.encode_context(xC, yC)
+                zC, qC = self.encode_context(xC, yC)
                 yhatT, sgm = self.decode_context(xT, zC)
                 x, indices = xT[0, :, 0].sort(dim=-1)
                 p.plot("xT", "y", "yhatT", "trainset: x - yhat", xT[0, indices, 0].cpu().numpy(), yhatT[0, indices, 0].cpu().numpy(), reset=True)
