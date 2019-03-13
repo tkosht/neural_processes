@@ -1,7 +1,6 @@
 import argparse
 import torch
-import torch.utils.data
-from torch import nn, optim
+from torch import optim
 
 import utils
 from npmodel import NPModel

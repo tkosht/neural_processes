@@ -13,10 +13,11 @@ class NPMlp(nn.Module):
         self.fcs = []
 
         prev_sz = layers[0]
-        for hsz in self.layers[1:]:
+        for idx, hsz in enumerate(self.layers[1:]):
             fc = nn.Linear(prev_sz, hsz)
             torch.nn.init.xavier_normal_(fc.weight)
             self.fcs.append(fc)
+            setattr(self, f"fc_{idx:03d}", fc)
             prev_sz = hsz
 
         self.device = torch.device("cpu")
@@ -144,10 +145,11 @@ class NPDecoder(nn.Module):
 
 
 class NPModel(nn.Module):
-    def __init__(self, xC_size, yC_size, xT_size, yT_size, z_size,
+    def __init__(self, xC_size, yC_size, xT_size, yT_size, z_size, use_deterministic_path=True,
                  embed_layers=[32, 64, 28], encoder_layers=[28, 32], expand_layers=[32, 64]):
         super().__init__()
 
+        self.use_deterministic_path = use_deterministic_path
         self.embedder_C = NPEmbedder(xC_size, yC_size, embed_layers)
         self.embedder_T = NPEmbedder(xT_size, yT_size, embed_layers)
         self.encoder = NPEncoder(embed_layers[-1], z_size, encoder_layers)
@@ -201,9 +203,16 @@ class NPModel(nn.Module):
         zC, qC, muC, sgmC = self.encode_context(xC, yC)
         zCT, qCT, muCT, sgmCT = self.encode_full(xC, yC, xT, yT)
         yhatT, sgm = self.decode_context(xT, zC)
-        sgm = torch.ones_like(yhatT) * 0.005
         log_p = self.log_likelihood(yhatT, std=sgm, D=yT)
         kl_div = self.kl_loss(q=qCT, p=qC)
+        # cs = nn.CosineSimilarity(dim=1, eps=1e-6)
+        # B = yT.shape[0]
+        # cos_loss = cs(yT.reshape(B, -1), yhatT.reshape(B, -1)).mean()
+        # mse = nn.MSELoss()
+        # mse0 = mse(sgm, torch.zeros_like(sgm))          # regularizer
+        # mseC = mse(sgmC, torch.zeros_like(sgmC))        # regularizer
+        # mseCT = mse(sgmCT, torch.zeros_like(sgmCT))     # regularizer
+        # sgm_regs = mse0 + mseC + mseCT
         loss = - log_p + kl_div
         return yhatT, sgm, loss
 
@@ -215,14 +224,14 @@ class NPModel(nn.Module):
             p = utils.VisdomLinePlotter(env_name='main')
             self._func_plotter = p
         with torch.no_grad():
-            for _ in range(5):
+            for _ in range(10):
                 zC, qC, muC, sgmC = self.encode_context(xC, yC)
                 yhatT, sgm = self.decode_context(xT, zC)
                 x, indices = xT[0, :, 0].sort(dim=-1)
                 p.plot("xT", "y", "yhatT", "trainset: x - yhat", xT[0, indices, 0].cpu().numpy(), yhatT[0, indices, 0].cpu().numpy(), reset=True)
                 p.scatter(xT[0, indices, 0].cpu().numpy(), yT[0, indices, 0].cpu().numpy(), "y", "yT")
                 import time
-                time.sleep(1)
+                time.sleep(0.2)
         return yhatT, sgm
 
     def to(self, device):
