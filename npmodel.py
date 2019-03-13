@@ -205,14 +205,6 @@ class NPModel(nn.Module):
         yhatT, sgm = self.decode_context(xT, zC)
         log_p = self.log_likelihood(yhatT, std=sgm, D=yT)
         kl_div = self.kl_loss(q=qCT, p=qC)
-        # cs = nn.CosineSimilarity(dim=1, eps=1e-6)
-        # B = yT.shape[0]
-        # cos_loss = cs(yT.reshape(B, -1), yhatT.reshape(B, -1)).mean()
-        # mse = nn.MSELoss()
-        # mse0 = mse(sgm, torch.zeros_like(sgm))          # regularizer
-        # mseC = mse(sgmC, torch.zeros_like(sgmC))        # regularizer
-        # mseCT = mse(sgmCT, torch.zeros_like(sgmCT))     # regularizer
-        # sgm_regs = mse0 + mseC + mseCT
         loss = - log_p + kl_div
         return yhatT, sgm, loss
 
