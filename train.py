@@ -4,7 +4,7 @@ from torch import optim
 
 import utils
 from npmodel import NPModel
-from toydataset import GPCurvesReader, plot_functions
+from toydataset import GPCurvesReader, save_functions
 
 
 def get_args():
@@ -66,7 +66,7 @@ def train(model, optimizer, epoch, npcfg):
         p.parent.mkdir(parents=True, exist_ok=True)
         with torch.no_grad():
             yhatT, sgm = model.predict(*testset[:3])
-        plot_functions(file_name, *testset, yhatT, sgm)
+        save_functions(file_name, *testset, yhatT, sgm)
 
 
 def make_dataset(gpr):

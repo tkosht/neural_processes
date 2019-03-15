@@ -105,7 +105,7 @@ def saveimg_xy(name, context_x, context_y, target_x, target_y):
     plt.savefig(f"{name}.png")
 
 
-def plot_functions(file_name, context_x, context_y, target_x, target_y, pred_y, std):
+def save_functions(file_name, context_x, context_y, target_x, target_y, pred_y, std):
     plt.clf()
     xc = context_x[0, :, 0].cpu().numpy()
     yc = context_y[0, :, 0].cpu().numpy()
