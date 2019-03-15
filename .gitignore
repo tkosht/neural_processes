@@ -1,3 +1,8 @@
+# Custom
+.idea
+img
+fmnist
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
