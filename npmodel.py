@@ -6,6 +6,7 @@ from torch.nn import functional as F
 
 def weight_initialize(w):
     return torch.nn.init.xavier_uniform_(w)
+    # return torch.nn.init.kaiming_uniform_(w)
     # return torch.nn.init.xavier_normal_(w)
 
 
@@ -178,8 +179,11 @@ class NPModel(nn.Module):
         qC = self.latent_encoder(rC.to(self.device))
         return qC
 
-    def get_encoded_sample(self, xC, yC, qC):
-        zC = qC.rsample()   # must get reparameterized sample
+    def get_encoded_sample(self, xC, yC, qC, do_randomize=True):
+        if do_randomize:
+            zC = qC.rsample()   # must get reparameterized sample
+        else:
+            zC = qC.mean
         if self.use_deterministic_path:
             zD = self.deterministic_encoder(xC, yC)
             zD = zD.mean(dim=1).unsqueeze(1)
@@ -210,12 +214,6 @@ class NPModel(nn.Module):
         kl_div = kl.squeeze(1).sum(-1).mean()
         return kl_div
 
-    def predict(self, xC, yC, xT):
-        qC = self.encode_context(xC, yC)
-        zC = self.get_encoded_sample(xC, yC, qC)
-        yhatT, sgm = self.decode_context(xT, zC)
-        return yhatT, sgm
-
     def forward(self, xC, yC, xT, yT):
         qC = self.encode_context(xC, yC)        # (B, 1, zC_dim)
         zC = self.get_encoded_sample(xC, yC, qC)
@@ -226,6 +224,12 @@ class NPModel(nn.Module):
         kl_div = self.kl_loss(q=qCT, p=qC)
         loss = - log_p + kl_div
         return yhatT, sgm, loss
+
+    def predict(self, xC, yC, xT):
+        qC = self.encode_context(xC, yC)
+        zC = self.get_encoded_sample(xC, yC, qC, do_randomize=False)
+        yhatT, sgm = self.decode_context(xT, zC)
+        return yhatT, sgm
 
     _func_plotter = None
 
