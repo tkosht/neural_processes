@@ -80,10 +80,6 @@ def make_dataset(gpr):
     yC_size = context_y.shape[-1]
     xT_size = target_x.shape[-1]
     yT_size = target_y.shape[-1]
-    # xC_size = numpy.array(context_x.shape[-2:]).prod()
-    # yC_size = numpy.array(context_y.shape[-2:]).prod()
-    # xT_size = numpy.array(target_x.shape[-2:]).prod()
-    # yT_size = numpy.array(target_y.shape[-2:]).prod()
     sizes = [xC_size, yC_size, xT_size, yT_size]
     return dataset, sizes
 

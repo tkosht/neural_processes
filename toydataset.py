@@ -25,7 +25,8 @@ class GPCurvesReader(object):
         self._device = device
         assert self._l1_scale > 0.1
 
-    def _gaussian_kernel(self, xdata, l1, sigma_f, sigma_noise=2e-2):
+    @staticmethod
+    def _gaussian_kernel(xdata, l1, sigma_f, sigma_noise=2e-2):
         num_total_points = xdata.shape[1]
 
         xdata1 = xdata.unsqueeze(1)     # (B, 1, num_total_points, x_size)
@@ -112,8 +113,6 @@ def plot_functions(file_name, context_x, context_y, target_x, target_y, pred_y, 
     yt = target_y[0, :, 0].cpu().numpy()
     yht = pred_y[0, :, 0].cpu().numpy()
     sgm = std[0, :, 0].cpu().numpy()
-    # yht = pred_y[0, :, 0].cpu().detach().numpy()
-    # sgm = std[0, :, 0].cpu().detach().numpy()
 
     plt.plot(xt, yht, 'b', linewidth=2)
     plt.plot(xt, yt, 'k:', linewidth=2)
@@ -130,9 +129,7 @@ def plot_functions(file_name, context_x, context_y, target_x, target_y, pred_y, 
     plt.savefig(f"{file_name}")
 
 
-
 if __name__ == "__main__":
-    import matplotlib.pyplot as plt
     device = torch.device("cuda:1")
 
     train_gpr = GPCurvesReader(batch_size=8, max_num_context=50, testing=False, device=device)
