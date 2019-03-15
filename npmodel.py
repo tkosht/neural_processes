@@ -4,6 +4,11 @@ from torch import nn
 from torch.nn import functional as F
 
 
+def weight_initialize(w):
+    return torch.nn.init.xavier_uniform_(w)
+    # return torch.nn.init.xavier_normal_(w)
+
+
 class NPMlp(nn.Module):
     def __init__(self, layers=[2, 4, 8, 16, 8, 4, 2], activate=F.relu):
         super().__init__()
@@ -15,7 +20,7 @@ class NPMlp(nn.Module):
         prev_sz = layers[0]
         for idx, hsz in enumerate(self.layers[1:]):
             fc = nn.Linear(prev_sz, hsz)
-            torch.nn.init.xavier_normal_(fc.weight)
+            weight_initialize(fc.weight)
             self.fcs.append(fc)
             setattr(self, f"fc_{idx:03d}", fc)
             prev_sz = hsz
@@ -70,7 +75,8 @@ class NPEmbedder(nn.Module):
 
 
 class NPEncoder(nn.Module):
-    def __init__(self, hidden_size: int, z_size: int, encoder_layers=[2, 4, 8], activate=F.relu):
+    def __init__(self, hidden_size: int, z_size: int,
+                 encoder_layers=[2, 4, 8], activate=F.relu):
         super().__init__()
 
         assert hidden_size > 0
@@ -86,18 +92,23 @@ class NPEncoder(nn.Module):
         self.softplus = torch.nn.Softplus()
         self.device = torch.device("cpu")
 
-        torch.nn.init.xavier_normal_(self.mu.weight)
-        torch.nn.init.xavier_normal_(self.logsgm.weight)
+        weight_initialize(self.mu.weight)
+        weight_initialize(self.logsgm.weight)
+
+    @staticmethod
+    def distribution(mu, sgm):
+        return torch.distributions.Normal(mu, sgm)
 
     def u(self, r):
         h = self.enc(r)
         return self.mu(h), self.logsgm(h)
 
     def encode(self, r_vector):     # (B, N, r_dim)
-        r = self.a(r_vector, dim=1)
+        r = self.a(r_vector, dim=1) # r:(B, 1, r_dim)
         mu, logsgm = self.u(r.unsqueeze(1))
-        sigma = 0.1 + 0.9 * self.softplus(logsgm)
-        return mu, sigma
+        sgm = 0.1 + 0.9 * self.softplus(logsgm)
+        q = self.distribution(mu, sgm)
+        return q
 
     def forward(self, r_vector):
         return self.encode(r_vector)
@@ -111,14 +122,14 @@ class NPEncoder(nn.Module):
 
 
 class NPDecoder(nn.Module):
-    def __init__(self, xT_size, z_size, expand_layers=[32, 64], activate=F.relu):
+    def __init__(self, xT_size, z_size, decoder_layers=[32, 64], activate=F.relu):
         super().__init__()
 
         self.xT_size = xT_size
         self.latent_size = z_size
-        self.out_size = expand_layers[-1]
+        self.out_size = decoder_layers[-1]
 
-        layers = [xT_size + z_size] + expand_layers
+        layers = [xT_size + z_size] + decoder_layers
         self.dec_yhat = NPMlp(layers, activate)
         self.dec_logsgm = NPMlp(layers, activate)
         self.softplus = torch.nn.Softplus()
@@ -145,33 +156,41 @@ class NPDecoder(nn.Module):
 
 
 class NPModel(nn.Module):
-    def __init__(self, xC_size, yC_size, xT_size, yT_size, z_size, use_deterministic_path=True,
-                 embed_layers=[32, 64, 28], encoder_layers=[28, 32], expand_layers=[32, 64]):
+    def __init__(self, xC_size, yC_size, xT_size, yT_size, z_size, use_deterministic_path=False,
+                 embed_layers=[32, 64, 28], latent_encoder_layers=[28, 32],
+                 deterministic_layers=[18, 33], decoder_layers=[32, 64]):
         super().__init__()
 
         self.use_deterministic_path = use_deterministic_path
         self.embedder_C = NPEmbedder(xC_size, yC_size, embed_layers)
         self.embedder_T = NPEmbedder(xT_size, yT_size, embed_layers)
-        self.encoder = NPEncoder(embed_layers[-1], z_size, encoder_layers)
-        self.decoder = NPDecoder(xT_size, z_size, expand_layers)
+        self.latent_encoder = NPEncoder(embed_layers[-1], z_size, latent_encoder_layers)
+        if use_deterministic_path:
+            # self.deterministic_encoder = NPEmbedder(xC_size, yC_size, deterministic_layers)
+            # z_size += deterministic_layers[-1]
+            self.deterministic_encoder = self.embedder_C
+            z_size += embed_layers[-1]
+        self.decoder = NPDecoder(xT_size, z_size, decoder_layers)
         self.device = torch.device("cpu")
-
-    @staticmethod
-    def distribution(mu, sgm):
-        return torch.distributions.Normal(mu, sgm)
 
     def encode_context(self, xC, yC):
         rC = self.embedder_C(xC, yC)
-        muC, sgmC = self.encoder(rC.to(self.device))
-        qC = self.distribution(muC, sgmC)
+        qC = self.latent_encoder(rC.to(self.device))
         return qC
+
+    def get_encoded_sample(self, xC, yC, qC):
+        zC = qC.rsample()   # must get reparameterized sample
+        if self.use_deterministic_path:
+            zD = self.deterministic_encoder(xC, yC)
+            zD = zD.mean(dim=1).unsqueeze(1)
+            zC = torch.cat([zC, zD], dim=-1)
+        return zC
 
     def encode_full(self, xC, yC, xT, yT):
         rC = self.embedder_C(xC, yC)
         rT = self.embedder_T(xT, yT)
         rCT = torch.cat([rC, rT], dim=1)
-        muCT, sgmCT = self.encoder(rCT.to(self.device))
-        qCT = self.distribution(muCT, sgmCT)
+        qCT = self.latent_encoder(rCT.to(self.device))
         return qCT
 
     def decode_context(self, xT, zC):
@@ -193,14 +212,15 @@ class NPModel(nn.Module):
 
     def predict(self, xC, yC, xT):
         qC = self.encode_context(xC, yC)
-        zC = qC.sample()
+        zC = self.get_encoded_sample(xC, yC, qC)
         yhatT, sgm = self.decode_context(xT, zC)
         return yhatT, sgm
 
     def forward(self, xC, yC, xT, yT):
-        qC = self.encode_context(xC, yC)
-        zC = qC.rsample()
-        qCT = self.encode_full(xC, yC, xT, yT)
+        qC = self.encode_context(xC, yC)        # (B, 1, zC_dim)
+        zC = self.get_encoded_sample(xC, yC, qC)
+        qCT = self.encode_full(xC, yC, xT, yT)  # (B, 1, zCT_dim)
+        # qCT = self.encode_context(xT, yT)     # deepmind's implements
         yhatT, sgm = self.decode_context(xT, zC)
         log_p = self.log_likelihood(yhatT, std=sgm, D=yT)
         kl_div = self.kl_loss(q=qCT, p=qC)
@@ -219,7 +239,7 @@ class NPModel(nn.Module):
         with torch.no_grad():
             qC = self.encode_context(xC, yC)
             for _ in range(10):
-                zC = qC.sample()
+                zC = self.get_encoded_sample(xC, yC, qC)
                 yhatT, sgm = self.decode_context(xT, zC)
                 x, indices = xT[bidx, :, 0].sort(dim=-1)
                 p.plot("xT", f"y[{bidx}]", "yhatT", "trainset: x - yhat",
@@ -236,7 +256,7 @@ class NPModel(nn.Module):
     def to(self, device):
         self.embedder_C = self.embedder_C.to(device)
         self.embedder_T = self.embedder_T.to(device)
-        self.encoder = self.encoder.to(device)
+        self.latent_encoder = self.latent_encoder.to(device)
         self.decoder = self.decoder.to(device)
         self.device = device
         return super().to(device)

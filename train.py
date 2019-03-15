@@ -92,7 +92,7 @@ if __name__ == "__main__":
     args = get_args()
     device = torch.device(f"cuda:{args.gpu}" if args.cuda else "cpu")
 
-    batch_size = 64
+    batch_size = 16
     train_gpr = GPCurvesReader(batch_size=batch_size, max_num_context=50, testing=False)
     test_gpr = GPCurvesReader(batch_size=1, max_num_context=50, testing=True)
     trainset, train_sizes = make_dataset(train_gpr)
@@ -108,16 +108,18 @@ if __name__ == "__main__":
     )
 
     hidden_size = 128
-    model_params = {
-        "xC_size": xC_size,
-        "yC_size": yC_size,
-        "xT_size": xT_size,
-        "yT_size": yT_size,
-        "z_size": hidden_size,
-        "embed_layers": [hidden_size]*4,
-        "encoder_layers": [hidden_size]*3,
-        "expand_layers": [hidden_size]*2 + [yT_size],
-    }
+    model_params = dict(
+        xC_size=xC_size,
+        yC_size=yC_size,
+        xT_size=xT_size,
+        yT_size=yT_size,
+        z_size=hidden_size,
+        embed_layers=[hidden_size]*3,
+        latent_encoder_layers=[hidden_size]*1,
+        deterministic_layers=[hidden_size]*4,
+        decoder_layers=[hidden_size]*2 + [yT_size],
+        use_deterministic_path=False,
+    )
     model = NPModel(**model_params).to(device)
     optimizer = optim.Adam(model.parameters(), lr=1e-4)
 
