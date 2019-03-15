@@ -17,8 +17,8 @@ def get_args():
                         help='enables CUDA training')
     parser.add_argument('--gpu', type=int, default=1, metavar='N',
                         help='gpu number (default: 1), if no-cuda, ignore this option.')
-    parser.add_argument('--seed', type=int, default=1, metavar='S',
-                        help='random seed (default: 1)')
+    parser.add_argument('--seed', type=int, default=777, metavar='S',
+                        help='random seed (default: 777)')
     parser.add_argument('--log-interval', type=int, default=1000, metavar='N',
                         help='how many batches to wait before logging training status')
     args = parser.parse_args()
@@ -87,6 +87,8 @@ def make_dataset(gpr):
 if __name__ == "__main__":
     args = get_args()
     device = torch.device(f"cuda:{args.gpu}" if args.cuda else "cpu")
+    if args.seed >= 0:
+        torch.manual_seed(args.seed)
 
     batch_size = 16
     train_gpr = GPCurvesReader(batch_size=batch_size, max_num_context=50, testing=False)
