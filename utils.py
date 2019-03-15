@@ -36,9 +36,8 @@ class VisdomLinePlotter(object):
         params.update(extra)
         self.plotted_windows[y_label] = self.viz.line(**params)
 
-    def scatter(self, x, y, y_label, legend_name):
-        # colors = numpy.random.randint(0, 255, (2, 3,))
-        color = numpy.array([0, 0, 0]).reshape(-1, 3)
+    def scatter(self, x, y, y_label, legend_name, color=(0, 0, 0)):
+        color = numpy.array(color).reshape(-1, 3)
         win = self.plotted_windows[y_label]
         self.viz.scatter(X=x, Y=y,
                          opts=dict(markersize=10, markercolor=color,),

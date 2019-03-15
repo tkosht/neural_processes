@@ -31,24 +31,26 @@ def train(model, optimizer, epoch, npcfg):
     # trainset, _ = make_dataset(npcfg.train_gpr)
     testset, _ = make_dataset(npcfg.test_gpr)
 
+    # set to train mode
     model.train()
-    # train_loss = 0
+
     xC, yC, xT, yT = trainset
     optimizer.zero_grad()
     yhatT, sgm, loss = model(xC, yC, xT, yT)
     loss.backward()
-    def losser():
+
+    def loss_closure():
         return loss
-    optimizer.step(losser)
+    optimizer.step(loss_closure)
     loss_meter.update(loss.item())
-    predicted_list.append(yhatT)
 
     if epoch % 1000 == 0:
-        model.check_kl_collapse(xC, yC, xT, yT)
+        B = min(xC.shape[0], 5)
+        for bidx in range(B):
+            model.plot_prediction(bidx, xC, yC, xT, yT)
 
     if epoch % 100 == 0:
         try:
-
             # if visdom server running, plot loss values
             plotter.plot("epoch", "loss", "train", "Epoch - Loss", [epoch], [loss_meter.avg], reset=False)
         except Exception as e:
@@ -58,9 +60,6 @@ def train(model, optimizer, epoch, npcfg):
 
     if epoch % npcfg.log_interval == 0:
         print(f"Train Epoch {epoch}/{npcfg.max_epoch}: {loss.item():.6f}")
-        # file_name = f"img/train-{epoch:05d}.png"
-        # plot_functions(file_name, *trainset, yhatT, sgm)
-
         file_name = f"img/test-{epoch:05d}.png"
         import pathlib
         p = pathlib.Path(file_name)
@@ -93,7 +92,7 @@ if __name__ == "__main__":
     args = get_args()
     device = torch.device(f"cuda:{args.gpu}" if args.cuda else "cpu")
 
-    batch_size = 16
+    batch_size = 64
     train_gpr = GPCurvesReader(batch_size=batch_size, max_num_context=50, testing=False)
     test_gpr = GPCurvesReader(batch_size=1, max_num_context=50, testing=True)
     trainset, train_sizes = make_dataset(train_gpr)
@@ -116,11 +115,11 @@ if __name__ == "__main__":
         "yT_size": yT_size,
         "z_size": hidden_size,
         "embed_layers": [hidden_size]*4,
-        "encoder_layers": [hidden_size]*4,
+        "encoder_layers": [hidden_size]*3,
         "expand_layers": [hidden_size]*2 + [yT_size],
     }
     model = NPModel(**model_params).to(device)
-    optimizer = optim.Adam(model.parameters(), lr=1e-3)
+    optimizer = optim.Adam(model.parameters(), lr=1e-4)
 
     global plotter
     # plotter = utils.VisdomLinePlotter(env_name='np')
@@ -128,9 +127,6 @@ if __name__ == "__main__":
 
     global loss_meter
     loss_meter = utils.AverageMeter()
-
-    global predicted_list
-    predicted_list = []
 
     for epoch in range(1, args.epochs + 1):
         train(model, optimizer, epoch, npcfg)

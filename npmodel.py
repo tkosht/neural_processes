@@ -156,9 +156,14 @@ class NPModel(nn.Module):
         self.decoder = NPDecoder(xT_size, z_size, expand_layers)
         self.device = torch.device("cpu")
 
-    def reparameterize(self, mu, sgm):
+    @staticmethod
+    def reparameterize(mu, sgm):
         eps = torch.randn_like(sgm)
         return mu + eps*sgm
+
+    @staticmethod
+    def distribution(mu, sgm):
+        return torch.distributions.Normal(mu, sgm)
 
     def encode_context(self, xC, yC):
         rC = self.embedder_C(xC, yC)
@@ -176,20 +181,19 @@ class NPModel(nn.Module):
         zCT = self.reparameterize(muCT, sgmCT)
         return zCT, qCT
 
-    def distribution(self, mu, sgm):
-        return torch.distributions.Normal(mu, sgm)
-
     def decode_context(self, xT, zC):
         T = xT.shape[1]
         yhatT, sgm = self.decoder(xT, zC.repeat(1, T, 1))
         return yhatT, sgm
 
-    def log_likelihood(self, mu, std, D):
+    @staticmethod
+    def log_likelihood(mu, std, D):
         norm = torch.distributions.Normal(mu, std)
         agg_dim = tuple(range(1, len(D.shape)))     # possibly agg_dim == (1, 2)
         return norm.log_prob(D).sum(dim=agg_dim).mean()
 
-    def kl_loss(self, q, p):
+    @staticmethod
+    def kl_loss(q, p):
         kl = torch.distributions.kl.kl_divergence(q, p)
         kl_div = kl.squeeze(1).sum(-1).mean()
         return kl_div
@@ -210,7 +214,8 @@ class NPModel(nn.Module):
 
     _func_plotter = None
 
-    def check_kl_collapse(self, xC, yC, xT, yT):
+    def plot_prediction(self, bidx, xC, yC, xT, yT):
+        # to check kl collapse or not
         import utils
         p = self._func_plotter
         if p is None:
@@ -220,9 +225,14 @@ class NPModel(nn.Module):
             for _ in range(10):
                 zC, qC = self.encode_context(xC, yC)
                 yhatT, sgm = self.decode_context(xT, zC)
-                x, indices = xT[0, :, 0].sort(dim=-1)
-                p.plot("xT", "y", "yhatT", "trainset: x - yhat", xT[0, indices, 0].cpu().numpy(), yhatT[0, indices, 0].cpu().numpy(), reset=True)
-                p.scatter(xT[0, indices, 0].cpu().numpy(), yT[0, indices, 0].cpu().numpy(), "y", "yT")
+                x, indices = xT[bidx, :, 0].sort(dim=-1)
+                p.plot("xT", f"y[{bidx}]", "yhatT", "trainset: x - yhat",
+                       xT[bidx, indices, 0].cpu().numpy(),
+                       yhatT[bidx, indices, 0].cpu().numpy(), reset=True)
+                p.scatter(xT[bidx, indices, 0].cpu().numpy(),
+                          yT[bidx, indices, 0].cpu().numpy(), f"y[{bidx}]", "yT")
+                p.scatter(xC[bidx, :, 0].cpu().numpy(),
+                          yC[bidx, :, 0].cpu().numpy(), f"y[{bidx}]", "yC", color=(128, 128, 128))
                 import time
                 time.sleep(0.2)
         return yhatT, sgm
