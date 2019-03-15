@@ -193,7 +193,7 @@ class NPModel(nn.Module):
 
     def predict(self, xC, yC, xT):
         qC = self.encode_context(xC, yC)
-        zC = qC.rsample()
+        zC = qC.sample()
         yhatT, sgm = self.decode_context(xT, zC)
         return yhatT, sgm
 
