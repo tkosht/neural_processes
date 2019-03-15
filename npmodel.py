@@ -157,11 +157,6 @@ class NPModel(nn.Module):
         self.device = torch.device("cpu")
 
     @staticmethod
-    def reparameterize(mu, sgm):
-        eps = torch.randn_like(sgm)
-        return mu + eps*sgm
-
-    @staticmethod
     def distribution(mu, sgm):
         return torch.distributions.Normal(mu, sgm)
 
@@ -169,8 +164,7 @@ class NPModel(nn.Module):
         rC = self.embedder_C(xC, yC)
         muC, sgmC = self.encoder(rC.to(self.device))
         qC = self.distribution(muC, sgmC)
-        zC = self.reparameterize(muC, sgmC)
-        return zC, qC
+        return qC
 
     def encode_full(self, xC, yC, xT, yT):
         rC = self.embedder_C(xC, yC)
@@ -178,8 +172,7 @@ class NPModel(nn.Module):
         rCT = torch.cat([rC, rT], dim=1)
         muCT, sgmCT = self.encoder(rCT.to(self.device))
         qCT = self.distribution(muCT, sgmCT)
-        zCT = self.reparameterize(muCT, sgmCT)
-        return zCT, qCT
+        return qCT
 
     def decode_context(self, xT, zC):
         T = xT.shape[1]
@@ -199,13 +192,15 @@ class NPModel(nn.Module):
         return kl_div
 
     def predict(self, xC, yC, xT):
-        zC, qC = self.encode_context(xC, yC)
+        qC = self.encode_context(xC, yC)
+        zC = qC.rsample()
         yhatT, sgm = self.decode_context(xT, zC)
         return yhatT, sgm
 
     def forward(self, xC, yC, xT, yT):
-        zC, qC = self.encode_context(xC, yC)
-        zCT, qCT = self.encode_full(xC, yC, xT, yT)
+        qC = self.encode_context(xC, yC)
+        zC = qC.rsample()
+        qCT = self.encode_full(xC, yC, xT, yT)
         yhatT, sgm = self.decode_context(xT, zC)
         log_p = self.log_likelihood(yhatT, std=sgm, D=yT)
         kl_div = self.kl_loss(q=qCT, p=qC)
@@ -222,8 +217,9 @@ class NPModel(nn.Module):
             p = utils.VisdomLinePlotter(env_name='main')
             self._func_plotter = p
         with torch.no_grad():
+            qC = self.encode_context(xC, yC)
             for _ in range(10):
-                zC, qC = self.encode_context(xC, yC)
+                zC = qC.sample()
                 yhatT, sgm = self.decode_context(xT, zC)
                 x, indices = xT[bidx, :, 0].sort(dim=-1)
                 p.plot("xT", f"y[{bidx}]", "yhatT", "trainset: x - yhat",
