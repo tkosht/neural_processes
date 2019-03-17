@@ -6,6 +6,8 @@ import collections
 from matplotlib import pyplot as plt
 from torchvision.datasets import FashionMNIST
 
+from typing import TypeVar, Iterable
+
 NPDescription = collections.namedtuple(
     "NPDescription",
     ("query", "target_y", "num_total_points", "num_context_points")
@@ -13,13 +15,21 @@ NPDescription = collections.namedtuple(
 
 
 class NPBatches(object):
-    def __init__(self, xC, yC, xT, yT, nC: int, nT: int):
+    def __init__(self, xC, yC, xT, yT, nC: int, nT: int, idx: int):
         self.xC = xC
         self.yC = yC
         self.xT = xT
         self.yT = yT
         self.nC = nC
         self.nT = nT
+        self.idx = idx
+
+    def dims(self):
+        sizes = []
+        for d in self.batches():   # d in xC, yC, xT, yT
+            sz = d.shape[-1]
+            sizes.append(sz)
+        return sizes
 
     def batches(self):
         return [self.xC, self.yC, self.xT, self.yT]
@@ -35,27 +45,31 @@ class NPBatches(object):
 
 
 class NPFasihonMnistReader(object):
-    def __init__(self, batch_size, max_num_context, testing=False, device=torch.device("cpu")):
+    def __init__(self, batch_size, testing=False, shuffle=False, seed=777, device=torch.device("cpu")):
         self._batch_size = batch_size
-        self.max_num_context = max_num_context
         self._testing = testing
+        self._shuffle = shuffle
+        self._seed = seed
         self._device = device
         self.fmnist = FashionMNIST(root="fmnist", train=(not testing), download=True)
         self.img_shape = (-1, -1)
         self.n_data = -1
         self.cur = -1
+        self.rnds = numpy.random.RandomState(seed)
 
     @property
     def batch_size(self):
         return self._batch_size
 
     def __iter__(self):
+        shuffled = self.rnds.permutation(len(self.fmnist.data))
+        self.fmnist.data = self.fmnist.data[shuffled]
         self.img_shape = self.fmnist.data.shape[1:]
         self.n_data = self.fmnist.data.shape[0]
         self.cur = -self._batch_size
         return self
 
-    def __next__(self):
+    def __next__(self) -> NPBatches:
         num_target = self.img_shape.numel()
         num_context = torch.randint(num_target//2, num_target, size=(1,))[0]
         num_context = num_context.numpy()
@@ -75,7 +89,7 @@ class NPFasihonMnistReader(object):
         target_x = torch.Tensor(list(target_x)).unsqueeze(0).repeat(self._batch_size, 1, 1)
         # pixcel index: (target_x[0, -1, :]+1)*14 -> (27, 27)
 
-        indices = numpy.random.choice(num_target, num_context)
+        indices = self.rnds.choice(num_target, num_context)
         context_x = target_x[:, indices]
         context_y = target_y[:, indices]
 
@@ -83,7 +97,8 @@ class NPFasihonMnistReader(object):
         context_y = context_y.to(self._device)
         target_x = target_x.to(self._device)
         target_y = target_y.to(self._device)
-        return NPBatches(context_x, context_y, target_x, target_y, nC=num_context, nT=num_target)
+        idx = self.cur // self.batch_size
+        return NPBatches(context_x, context_y, target_x, target_y, nC=num_context, nT=num_target, idx=idx)
 
     def restore_to_grid_indices(self, x):
         d = x.detach().clone()
@@ -110,14 +125,19 @@ class NPFasihonMnistReader(object):
         return d.data.cpu().numpy().astype(numpy.uint8)
 
 
-def save_yimages(img_c, img_t, img_file="y.png"):
+def save_yimages(img_c, img_t, img_p=None, img_file="y.png"):
     plt.clf()
     B = img_c.shape[0]
+    n_row = 2 if img_p is None else 3
     for b in range(B):
-        plt.subplot(8, 2, b*2+1)
+        plt.subplot(B, n_row, b*n_row+1)
         show_image(img_c[b])
-        plt.subplot(8, 2, b*2+2)
+        plt.subplot(B, n_row, b*n_row+2)
         show_image(img_t[b])
+        if n_row < 3:
+            continue
+        plt.subplot(B, n_row, b*n_row+3)
+        show_image(img_p[b])
     plt.savefig(img_file)
     return
 
@@ -130,8 +150,8 @@ if __name__ == "__main__":
     import pathlib
     device = torch.device("cuda:1")
 
-    train_npr = NPFasihonMnistReader(batch_size=8, max_num_context=50, testing=False, device=device)
-    test_npr = NPFasihonMnistReader(batch_size=8, max_num_context=50, testing=True, device=device)
+    train_npr = NPFasihonMnistReader(batch_size=8, testing=False, device=device)
+    test_npr = NPFasihonMnistReader(batch_size=8, testing=True, device=device)
 
     data_list = [(train_npr, "train"), (test_npr, "test")]
 
@@ -142,7 +162,7 @@ if __name__ == "__main__":
             img_t = npr.convert_to_img(target_y, target_y)
             p = pathlib.Path(f"img_fm/{name}_{b:05d}.png")
             p.parent.mkdir(parents=True, exist_ok=True)
-            save_yimages(img_c, img_t, str(p))
+            save_yimages(img_c, img_t, img_file=str(p))
             return
 
         itm = next(iter(npr))
@@ -159,7 +179,7 @@ if __name__ == "__main__":
 
         for b, _ in enumerate(npr):
             pass
-        assert b +1 == npr.n_data // npr.batch_size
+        assert b + 1 == npr.n_data // npr.batch_size
 
         print(f"data {name}: OK")
 
