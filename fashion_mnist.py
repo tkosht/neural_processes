@@ -24,6 +24,10 @@ class NPFasihonMnistReader(object):
         self.n_data = -1
         self.cur = -1
 
+    @property
+    def batch_size(self):
+        return self._batch_size
+
     def __iter__(self):
         self.img_shape = self.fmnist.data.shape[1:]
         self.n_data = self.fmnist.data.shape[0]
@@ -34,10 +38,10 @@ class NPFasihonMnistReader(object):
         num_target = self.img_shape.numel()
         num_context = torch.randint(num_target//2, num_target, size=(1,))[0]
         num_context = num_context.numpy()
-        if self.cur + self._batch_size > self.n_data:
+        self.cur += self._batch_size
+        if self.cur >= self.n_data:
             raise StopIteration()
 
-        self.cur += self._batch_size
         target_y = self.fmnist.data[self.cur:self.cur+self._batch_size]
         target_y = target_y.type(torch.FloatTensor) / 255.
         target_y = target_y.reshape(self._batch_size, -1).unsqueeze(-1)
@@ -48,10 +52,11 @@ class NPFasihonMnistReader(object):
         intervals = [get_interval(self.img_shape[0]), get_interval(self.img_shape[1])]
         target_x = itertools.product(intervals[0], intervals[1])
         target_x = torch.Tensor(list(target_x)).unsqueeze(0).repeat(self._batch_size, 1, 1)
+        # pixcel index: (target_x[0, -1, :]+1)*14 -> (27, 27)
+
         indices = numpy.random.choice(num_target, num_context)
         context_x = target_x[:, indices]
         context_y = target_y[:, indices]
-        # pixcel index: (target_x[0, -1, :]+1)*14 -> (27, 27)
 
         context_x = context_x.to(self._device)
         context_y = context_y.to(self._device)
@@ -117,12 +122,9 @@ if __name__ == "__main__":
     data_list = [(train_npr, "train"), (test_npr, "test")]
 
     for npr, name in data_list:
-        itr = iter(npr)
-        data = next(itr)
-
-        def run_batch(b, data):
-            ((context_x, context_y), target_x) = data.query
-            target_y = data.target_y
+        def run_batch(b, itm):
+            ((context_x, context_y), target_x) = itm.query
+            target_y = itm.target_y
             img_c = npr.convert_img(context_x, context_y)
             img_t = npr.convert_img(target_y, target_y)
             p = pathlib.Path(f"img_fm/{name}_{b:05d}.png")
@@ -130,11 +132,21 @@ if __name__ == "__main__":
             save_yimages(img_c, img_t, str(p))
             return
 
+        itm = next(iter(npr))
         with torch.no_grad():
-            run_batch(99999, data)
+            run_batch(99999, itm)
 
-        for b, data in enumerate(npr):
-            run_batch(b, data)
-            if b >= 2:
+        n = dict(train=60000, test=10000)
+        assert npr.n_data == n[name]
+
+        for b, itm in enumerate(npr):
+            run_batch(b, itm)
+            if b >= 1:
                 break
+
+        for b, _ in enumerate(npr):
+            pass
+        assert b +1 == npr.n_data // npr.batch_size
+
+        print(f"data {name}: OK")
 
