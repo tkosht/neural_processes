@@ -1,6 +1,6 @@
 # Custom
 .idea
-img
+*img*/
 fmnist
 
 # Byte-compiled / optimized / DLL files
