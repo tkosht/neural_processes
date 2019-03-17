@@ -6,11 +6,32 @@ import collections
 from matplotlib import pyplot as plt
 from torchvision.datasets import FashionMNIST
 
-
-NPFashionMnistDescription = collections.namedtuple(
-    "NPFashionMnistDescription",
+NPDescription = collections.namedtuple(
+    "NPDescription",
     ("query", "target_y", "num_total_points", "num_context_points")
 )
+
+
+class NPBatches(object):
+    def __init__(self, xC, yC, xT, yT, nC: int, nT: int):
+        self.xC = xC
+        self.yC = yC
+        self.xT = xT
+        self.yT = yT
+        self.nC = nC
+        self.nT = nT
+
+    def batches(self):
+        return [self.xC, self.yC, self.xT, self.yT]
+
+    def desc(self):
+        query = ((self.xC, self.yC), self.xT)
+        return NPDescription(
+            query=query,
+            target_y=self.yT,
+            num_total_points=self.nT,
+            num_context_points=self.nC
+        )
 
 
 class NPFasihonMnistReader(object):
@@ -62,14 +83,7 @@ class NPFasihonMnistReader(object):
         context_y = context_y.to(self._device)
         target_x = target_x.to(self._device)
         target_y = target_y.to(self._device)
-
-        query = ((context_x, context_y), target_x)
-
-        return NPFashionMnistDescription(
-            query=query,
-            target_y=target_y,
-            num_total_points=target_x.shape[1],
-            num_context_points=num_context)
+        return NPBatches(context_x, context_y, target_x, target_y, nC=num_context, nT=num_target)
 
     def restore_to_grid_indices(self, x):
         d = x.detach().clone()
@@ -77,7 +91,7 @@ class NPFasihonMnistReader(object):
         d[:, :, 1] = (d[:, :, 1] + 1) * self.img_shape[1]/2
         return d.data.cpu().numpy().astype(numpy.int32)
 
-    def convert_img(self, x, y):
+    def convert_to_img(self, x, y):
         B, N, D = y.shape
         if N >= self.img_shape.numel():
             # the case of target_y
@@ -122,11 +136,10 @@ if __name__ == "__main__":
     data_list = [(train_npr, "train"), (test_npr, "test")]
 
     for npr, name in data_list:
-        def run_batch(b, itm):
-            ((context_x, context_y), target_x) = itm.query
-            target_y = itm.target_y
-            img_c = npr.convert_img(context_x, context_y)
-            img_t = npr.convert_img(target_y, target_y)
+        def run_batch(b, itm: NPBatches):
+            context_x, context_y, target_x, target_y = itm.batches()
+            img_c = npr.convert_to_img(context_x, context_y)
+            img_t = npr.convert_to_img(target_y, target_y)
             p = pathlib.Path(f"img_fm/{name}_{b:05d}.png")
             p.parent.mkdir(parents=True, exist_ok=True)
             save_yimages(img_c, img_t, str(p))
