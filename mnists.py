@@ -4,9 +4,8 @@ import torch
 import torch.utils.data
 import collections
 from matplotlib import pyplot as plt
-from torchvision.datasets import FashionMNIST
+from torchvision.datasets import FashionMNIST, MNIST, EMNIST, KMNIST
 
-from typing import TypeVar, Iterable
 
 NPDescription = collections.namedtuple(
     "NPDescription",
@@ -44,17 +43,26 @@ class NPBatches(object):
         )
 
 
-class NPFasihonMnistReader(object):
-    def __init__(self, batch_size, testing=False, shuffle=False, seed=777, device=torch.device("cpu")):
+class NPMnistReader(object):
+    def __init__(self, batch_size, testing=False, shuffle=False,seed=777,
+                 mnist_type="mnist", fix_iter=-1, device=torch.device("cpu")):
         self._batch_size = batch_size
         self._testing = testing
         self._shuffle = shuffle
         self._seed = seed
         self._device = device
-        self.fmnist = FashionMNIST(root="fmnist", train=(not testing), download=True)
+        mnist_classes = {
+            "mnist": MNIST,
+            "fashion": FashionMNIST,
+            "emnist": EMNIST,
+            "kmnist": KMNIST,
+        }
+        self.mnist = mnist_classes[mnist_type](root="mnist", train=(not testing), download=True)
+        self.fix_iter = fix_iter
         self.img_shape = (-1, -1)
         self.n_data = -1
         self.cur = -1
+        self.cnt = -1
         self.rnds = numpy.random.RandomState(seed)
 
     @property
@@ -62,22 +70,32 @@ class NPFasihonMnistReader(object):
         return self._batch_size
 
     def __iter__(self):
-        shuffled = self.rnds.permutation(len(self.fmnist.data))
-        self.fmnist.data = self.fmnist.data[shuffled]
-        self.img_shape = self.fmnist.data.shape[1:]
-        self.n_data = self.fmnist.data.shape[0]
+        if self._shuffle:
+            if self.fix_iter > 0:
+                self.rnds = numpy.random.RandomState(self._seed)
+            shuffled = self.rnds.permutation(len(self.mnist.data))
+            self.mnist.data = self.mnist.data[shuffled]
+        self.img_shape = self.mnist.data.shape[1:]
+        self.n_data = self.mnist.data.shape[0]
         self.cur = -self._batch_size
+        self.cnt = -1
         return self
 
     def __next__(self) -> NPBatches:
         num_target = self.img_shape.numel()
         num_context = torch.randint(num_target//2, num_target, size=(1,))[0]
         num_context = num_context.numpy()
-        self.cur += self._batch_size
-        if self.cur >= self.n_data:
-            raise StopIteration()
-
-        target_y = self.fmnist.data[self.cur:self.cur+self._batch_size]
+        if self.fix_iter <= 0:
+            self.cur += self._batch_size
+            if self.cur >= self.n_data:
+                raise StopIteration()
+        else:
+            self.cur = 0
+            self.cnt += 1
+            self.rnds = numpy.random.RandomState(self._seed)
+            if self.cnt >= self.fix_iter:
+                raise StopIteration()
+        target_y = self.mnist.data[self.cur:self.cur+self._batch_size]
         target_y = target_y.type(torch.FloatTensor) / 255.
         target_y = target_y.reshape(self._batch_size, -1).unsqueeze(-1)
 
@@ -150,8 +168,8 @@ if __name__ == "__main__":
     import pathlib
     device = torch.device("cuda:1")
 
-    train_npr = NPFasihonMnistReader(batch_size=8, testing=False, device=device)
-    test_npr = NPFasihonMnistReader(batch_size=8, testing=True, device=device)
+    train_npr = NPMnistReader(batch_size=8, testing=False, device=device)
+    test_npr = NPMnistReader(batch_size=8, testing=True, device=device)
 
     data_list = [(train_npr, "train"), (test_npr, "test")]
 

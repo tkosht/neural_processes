@@ -8,7 +8,7 @@ from torch import optim
 
 import utils
 from npmodel import NPModel
-from fmnist import NPFasihonMnistReader, NPBatches, save_yimages
+from mnists import NPMnistReader, NPBatches, save_yimages
 
 
 def get_args():
@@ -25,6 +25,8 @@ def get_args():
                         help='random seed (default: 777)')
     parser.add_argument('--log-interval', type=int, default=10, metavar='N',
                         help='how many batches to wait before logging training status')
+    parser.add_argument('--dataset', type=str, default="mnist", choices=["mnist", "fashion"], metavar='S',
+                        help='dataset name like "mnist", "fashion-mnist", default: "mnist"')
     args = parser.parse_args()
     args.cuda = not args.no_cuda and torch.cuda.is_available()
     return args
@@ -36,8 +38,13 @@ class Trainer(object):
 
         batch_size, device = train_params.batch_size, train_params.device
         seed = train_params.seed
-        self.train_reader = NPFasihonMnistReader(batch_size=batch_size, testing=False, shuffle=True, seed=seed, device=device)
-        self.test_reader = NPFasihonMnistReader(batch_size=1, testing=True, shuffle=False, seed=seed, device=device)
+        params = dict(
+            shuffle=True, seed=seed,
+            mnist_type="mnist", fix_iter=10000,
+            device=device,
+        )
+        self.train_reader = NPMnistReader(batch_size=batch_size, testing=False, **params)
+        self.test_reader = NPMnistReader(batch_size=batch_size, testing=True, **params)
 
         self.model = None
         self.optimizer = None
@@ -119,7 +126,7 @@ if __name__ == "__main__":
     if args.seed >= 0:
         torch.manual_seed(args.seed)
 
-    batch_size = 16
+    batch_size = 30
     TrainParameters = collections.namedtuple(
         "TrainParameters", ("batch_size", "env_name", "log_interval", "max_epoch", "seed", "device")
     )
