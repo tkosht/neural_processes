@@ -2,6 +2,21 @@ import numpy
 from visdom import Visdom
 
 
+def print_params(params, vars=locals()):
+    name = "params"
+    for nm, vr in vars.items():
+        if id(vr) == id(params):
+            name = nm
+    print("-" * 20)
+    for k, v in sorted(params.__dict__.items()):
+        if k.startswith("_"):
+            continue
+        if k.startswith("no"):
+            continue
+        print(f"{name}.{k}: {v}")
+    print("-" * 10)
+
+
 class VisdomLinePlotter(object):
     """Plots to Visdom"""
     def __init__(self, env_name='main', port=8097, server="localhost"):
@@ -44,6 +59,7 @@ class VisdomLinePlotter(object):
                          name=legend_name,
                          update='append',
                          win=win)
+
 
 class AverageMeter(object):
     """Computes and stores the average and current value"""

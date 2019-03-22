@@ -3,6 +3,7 @@ import argparse
 import torch
 from torch import optim
 
+import utils
 from npmodel import NPModel
 from trainer import Trainer, TrainParameters
 
@@ -14,7 +15,7 @@ def get_args():
     parser.add_argument('--epochs', type=int, default=100, metavar='N',
                         help='number of epochs to train (default: 100)')
     parser.add_argument('--gpu', type=int, default=1, metavar='N',
-                        help='gpu number (default: 1), if no-cuda, ignore this option.')
+                        help='gpu number (default: 1), if no-cuda, ignore this option')
     parser.add_argument('--seed', type=int, default=777, metavar='S',
                         help='random seed (default: 777)')
     parser.add_argument('--log-interval', type=int, default=10, metavar='N',
@@ -23,6 +24,8 @@ def get_args():
                         help='dataset name like "mnist", "fashion-mnist", default: "mnist"')
     parser.add_argument('--fix-iter', type=int, default=-1, metavar='N',
                         help='the number of training a fixed batch, if negative, using whole data (default: -1)')
+    parser.add_argument('--lr', type=float, default=1e-4, metavar='F',
+                        help='learning rate (default: 1e-4)')
     args = parser.parse_args()
     args.cuda = (args.gpu >= 0) and torch.cuda.is_available()
     return args
@@ -30,6 +33,7 @@ def get_args():
 
 if __name__ == "__main__":
     args = get_args()
+    utils.print_params(args, locals())
     device = torch.device(f"cuda:{args.gpu}" if args.cuda else "cpu")
     if args.seed >= 0:
         torch.manual_seed(args.seed)
@@ -59,5 +63,5 @@ if __name__ == "__main__":
     )
 
     model = NPModel(**model_params).to(device)
-    optimizer = optim.Adam(model.parameters(), lr=1e-4)
+    optimizer = optim.Adam(model.parameters(), lr=args.lr)
     trainer.run_train(model, optimizer)
