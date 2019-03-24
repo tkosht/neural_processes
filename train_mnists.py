@@ -39,7 +39,7 @@ if __name__ == "__main__":
         torch.manual_seed(args.seed)
 
     train_params = TrainParameters(
-        batch_size=args.batch_size, env_name="main",
+        batch_size=args.batch_size, env_name="main", dataset=args.dataset,
         log_interval=args.log_interval, max_epoch=args.epochs,
         seed=args.seed, fix_iter=args.fix_iter,
         device=device
@@ -54,10 +54,10 @@ if __name__ == "__main__":
         xT_size=xT_dim,
         yT_size=yT_dim,
         z_size=hidden_size,
-        embed_layers=[hidden_size]*3,
-        latent_encoder_layers=[hidden_size]*1,
+        embed_layers=[512, 256, 128],
+        latent_encoder_layers=[128, 256],
         deterministic_layers=[hidden_size]*4,
-        decoder_layers=[hidden_size]*2 + [yT_dim],
+        decoder_layers=[128, 256, 512] + [yT_dim],
         use_deterministic_path=False,
         dec_f=torch.sigmoid,
     )

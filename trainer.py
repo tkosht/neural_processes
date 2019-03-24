@@ -9,7 +9,8 @@ from mnists import NPMnistReader, NPBatches, save_yimages
 
 TrainParameters = collections.namedtuple(
     "TrainParameters",
-    ("batch_size", "env_name", "log_interval", "max_epoch", "seed", "fix_iter", "device")
+    ("batch_size", "env_name", "dataset", "log_interval", "max_epoch",
+     "seed", "fix_iter", "device")
 )
 
 
@@ -23,7 +24,7 @@ class Trainer(object):
         device = train_params.device
         params = dict(
             shuffle=True, seed=seed,
-            mnist_type="mnist", fix_iter=fix_iter,
+            mnist_type=train_params.dataset, fix_iter=fix_iter,
             device=device,
         )
         self.train_reader = NPMnistReader(batch_size=batch_size, testing=False, **params)
@@ -101,5 +102,5 @@ class Trainer(object):
             img_yC = self.train_reader.convert_to_img(xC, yC)
             img_yT = self.train_reader.convert_to_img(xT, yT)
             img_yhat = self.train_reader.convert_to_img(xT, yhatT)
-            save_yimages(img_yC, img_yT, img_yhat, file_name)
+            save_yimages(img_yC, img_yT, img_yhat, title="yC/yhatT/yT", img_file=file_name)
 
