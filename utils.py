@@ -25,8 +25,6 @@ class VisdomLinePlotter(object):
         self.plotted_windows = {}
 
     def plot(self, x_label, y_label, legend_name, title_name, x, y, reset=False):
-        # X=x if hasattr(x, "__iter__") else numpy.array([x]),
-        # Y=y if hasattr(y, "__iter__") else numpy.array([y]),
         params = dict(
             X=x,
             Y=y,

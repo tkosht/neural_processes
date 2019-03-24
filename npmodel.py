@@ -169,7 +169,7 @@ class NPModel(nn.Module):
         if use_deterministic_path:
             # self.deterministic_encoder = NPEmbedder(xC_size, yC_size, deterministic_layers)
             # z_size += deterministic_layers[-1]
-            self.deterministic_encoder = self.embedder_C
+            self.deterministic_encoder = self.embedder_C    # to share weight
             z_size += embed_layers[-1]
         self.decoder = NPDecoder(xT_size, z_size, decoder_layers)
         self.dec_f = dec_f
